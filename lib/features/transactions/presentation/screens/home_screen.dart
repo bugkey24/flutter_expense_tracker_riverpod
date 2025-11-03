@@ -7,18 +7,12 @@ import '../notifiers/transaction_notifier.dart';
 import '../providers/transaction_providers.dart';
 
 /// The main screen of the application.
-///
-/// It consumes [transactionNotifierProvider] to display the UI based
-/// on the current [TransactionState]. It handles loading, error, and
-/// loaded states, and provides actions to add or delete transactions.
 class HomeScreen extends ConsumerWidget {
-  /// Creates the [HomeScreen] widget.
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // 1. Watch the provider to get the current state.
-    // The UI will automatically rebuild when this state changes.
     final transactionState = ref.watch(transactionNotifierProvider);
 
     return Scaffold(
@@ -27,8 +21,6 @@ class HomeScreen extends ConsumerWidget {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       // 2. Use Dart 3's switch expression for clean state handling.
-      // This pattern matching is exhaustive and ensures we handle
-      // all possible states from our TransactionState sealed class.
       body: switch (transactionState) {
         // --- Loading and Initial States ---
         TransactionInitial() ||
@@ -51,7 +43,6 @@ class HomeScreen extends ConsumerWidget {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    // Call the notifier method to try fetching data again.
                     ref
                         .read(transactionNotifierProvider.notifier)
                         .loadTransactions();
@@ -69,7 +60,6 @@ class HomeScreen extends ConsumerWidget {
               _TotalBalanceCard(totalBalance: totalBalance),
 
               // 4. List of Transactions
-              // A simple header for the list
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Text(
@@ -77,10 +67,13 @@ class HomeScreen extends ConsumerWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
-              // Use Expanded to make the list fill the remaining space
               Expanded(
                 child: _TransactionList(
                   transactions: transactions,
+                  onItemTap: (tx) {
+                    _showAddTransactionModal(context, ref,
+                        existingTransaction: tx);
+                  },
                 ),
               ),
             ],
@@ -88,7 +81,6 @@ class HomeScreen extends ConsumerWidget {
       },
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // 5. Show the modal bottom sheet to add a new transaction.
           _showAddTransactionModal(context, ref);
         },
         tooltip: 'Add Transaction',
@@ -97,24 +89,24 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  /// Displays a modal bottom sheet with a form to add a new transaction.
-  void _showAddTransactionModal(BuildContext context, WidgetRef ref) {
+  /// Displays a modal bottom sheet with a form to add/update a transaction.
+  void _showAddTransactionModal(BuildContext context, WidgetRef ref,
+      {Transaction? existingTransaction}) {
     showModalBottomSheet<void>(
       context: context,
-      // Ensure the modal resizes when the keyboard appears
       isScrollControlled: true,
-      // Use a rounded shape
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24.0)),
       ),
       builder: (modalContext) {
-        // We wrap the form in a Padding to respect the keyboard's view insets
         return Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(modalContext).viewInsets.bottom,
           ),
-          // We pass the 'ref' down to the form widget
-          child: _AddTransactionForm(ref: ref),
+          child: _AddTransactionForm(
+            ref: ref,
+            existingTransaction: existingTransaction,
+          ),
         );
       },
     );
@@ -123,7 +115,6 @@ class HomeScreen extends ConsumerWidget {
 
 // --- Helper Widget: Total Balance Card ---
 
-/// A card widget to display the user's total balance.
 class _TotalBalanceCard extends StatelessWidget {
   const _TotalBalanceCard({required this.totalBalance});
 
@@ -131,11 +122,10 @@ class _TotalBalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use Intl package to format currency
     final currencyFormatter = NumberFormat.currency(
-      locale: 'id_ID', // Indonesian locale
+      locale: 'id_ID',
       symbol: 'Rp ',
-      decimalDigits: 0, // No decimal digits for Rupiah
+      decimalDigits: 0,
     );
 
     return Card(
@@ -174,24 +164,24 @@ class _TotalBalanceCard extends StatelessWidget {
 
 // --- Helper Widget: Transaction List ---
 
-/// A list widget to display all transactions.
 class _TransactionList extends ConsumerWidget {
-  const _TransactionList({required this.transactions});
+  const _TransactionList({
+    required this.transactions,
+    required this.onItemTap,
+  });
 
   final List<Transaction> transactions;
+  final void Function(Transaction) onItemTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Use Intl package for currency and date formatting
     final currencyFormatter = NumberFormat.currency(
       locale: 'id_ID',
       symbol: 'Rp ',
       decimalDigits: 0,
     );
-    final dateFormatter =
-        DateFormat('d MMM yyyy', 'id_ID'); // e.g., "3 Nov 2025"
+    final dateFormatter = DateFormat('d MMM yyyy', 'id_ID');
 
-    // Handle the empty state
     if (transactions.isEmpty) {
       return const Center(
         child: Text(
@@ -201,34 +191,60 @@ class _TransactionList extends ConsumerWidget {
       );
     }
 
-    // Use ListView.builder for efficient scrolling
     return ListView.builder(
       itemCount: transactions.length,
       itemBuilder: (context, index) {
         final tx = transactions[index];
         final isExpense = tx.amount < 0;
 
-        // Use Dismissible to enable swipe-to-delete
         return Dismissible(
-          // Key must be unique for each item
           key: ValueKey(tx.id),
           direction: DismissDirection.endToStart,
-          // Callback when dismissed
+
+          confirmDismiss: (DismissDirection direction) async {
+            final bool? result = await showDialog<bool>(
+              context: context,
+              builder: (BuildContext dialogContext) {
+                return AlertDialog(
+                  title: const Text('Confirm Delete'),
+                  content: Text(
+                      'Are you sure you want to delete "${tx.description}"?'),
+                  actions: <Widget>[
+                    TextButton(
+                      child: const Text('Cancel'),
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop(false);
+                      },
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
+                      ),
+                      child: const Text('Delete'),
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop(true);
+                      },
+                    ),
+                  ],
+                );
+              },
+            );
+            return result ?? false;
+          },
+
+          // 2. 'onDismissed'
           onDismissed: (direction) {
-            // Call the notifier method to delete the transaction
             ref
                 .read(transactionNotifierProvider.notifier)
                 .deleteTransaction(tx.id);
 
-            // Show a SnackBar to confirm deletion (and offer undo)
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('"${tx.description}" deleted.'),
-                // TODO: Add an 'Undo' button that re-adds the transaction
               ),
             );
           },
-          // Background shown during the swipe
+
           background: Container(
             color: Colors.red.shade700,
             alignment: Alignment.centerRight,
@@ -236,6 +252,7 @@ class _TransactionList extends ConsumerWidget {
             child: const Icon(Icons.delete_sweep, color: Colors.white),
           ),
           child: ListTile(
+            onTap: () => onItemTap(tx),
             leading: CircleAvatar(
               backgroundColor:
                   isExpense ? Colors.red.shade100 : Colors.green.shade100,
@@ -262,17 +279,15 @@ class _TransactionList extends ConsumerWidget {
   }
 }
 
-// --- Helper Widget: Add Transaction Form ---
+// --- Helper Widget: Add/Update Transaction Form ---
 
-/// A stateful form widget for adding a new transaction.
-///
-/// This widget manages its own state (form controllers, toggle buttons)
-/// and calls the [TransactionNotifier] to add the new data.
 class _AddTransactionForm extends StatefulWidget {
-  /// We pass the [WidgetRef] down from the [HomeScreen]
-  /// so this widget can call the notifier.
-  const _AddTransactionForm({required this.ref});
+  const _AddTransactionForm({
+    required this.ref,
+    this.existingTransaction,
+  });
   final WidgetRef ref;
+  final Transaction? existingTransaction;
 
   @override
   State<_AddTransactionForm> createState() => _AddTransactionFormState();
@@ -283,9 +298,24 @@ class _AddTransactionFormState extends State<_AddTransactionForm> {
   final _descriptionController = TextEditingController();
   final _amountController = TextEditingController();
 
-  // Local state for the form's toggle button
-  // 0 = Expense, 1 = Income
-  final _selectedType = [true, false]; // Default to Expense
+  final _selectedType = [true, false]; // 0 = Expense, 1 = Income
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existingTransaction != null) {
+      final tx = widget.existingTransaction!;
+      _descriptionController.text = tx.description;
+      _amountController.text = tx.amount.abs().toStringAsFixed(0);
+      if (tx.amount < 0) {
+        _selectedType[0] = true;
+        _selectedType[1] = false;
+      } else {
+        _selectedType[0] = false;
+        _selectedType[1] = true;
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -300,22 +330,47 @@ class _AddTransactionFormState extends State<_AddTransactionForm> {
     if (_formKey.currentState?.validate() ?? false) {
       // 2. Get the raw values
       final description = _descriptionController.text;
-      final amount = double.tryParse(_amountController.text) ?? 0.0;
-      final isExpense = _selectedType[0]; // Check if 'Expense' is selected
+      final sanitizedAmount =
+          _amountController.text.replaceAll('.', '').replaceAll(',', '');
+      final amount = double.tryParse(sanitizedAmount) ?? 0.0;
+      final isExpense = _selectedType[0];
 
-      if (amount == 0.0) return; // Don't submit if amount is zero
+      if (amount == 0.0) return;
 
-      // 3. Call the notifier to add the transaction
-      // We use 'widget.ref' to access the ref passed from the parent.
-      widget.ref.read(transactionNotifierProvider.notifier).addTransaction(
-            description,
-            isExpense
-                ? -amount
-                : amount, // Make amount negative if it's an expense
-          );
+      final messenger = ScaffoldMessenger.of(context);
+      final bool isUpdating = widget.existingTransaction != null;
+      final String message = isUpdating
+          ? 'Transaction updated successfully!'
+          : 'Transaction added successfully!';
+      if (isUpdating) {
+        // --- UPDATE LOGIC ---
+        final updatedTransaction = Transaction(
+          id: widget.existingTransaction!.id,
+          description: description,
+          amount: isExpense ? -amount : amount,
+          date: widget.existingTransaction!.date,
+        );
+        widget.ref
+            .read(transactionNotifierProvider.notifier)
+            .updateTransaction(updatedTransaction);
+      } else {
+        // --- ADD LOGIC ---
+        widget.ref.read(transactionNotifierProvider.notifier).addTransaction(
+              description,
+              isExpense ? -amount : amount,
+            );
+      }
 
       // 4. Close the modal bottom sheet
       Navigator.of(context).pop();
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 2),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
     }
   }
 
@@ -330,7 +385,9 @@ class _AddTransactionFormState extends State<_AddTransactionForm> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Add New Transaction',
+              widget.existingTransaction == null
+                  ? 'Add New Transaction'
+                  : 'Update Transaction',
               style: Theme.of(context).textTheme.titleLarge,
               textAlign: TextAlign.center,
             ),
@@ -387,10 +444,12 @@ class _AddTransactionFormState extends State<_AddTransactionForm> {
                 if (value == null || value.isEmpty) {
                   return 'Please enter an amount.';
                 }
-                if (double.tryParse(value) == null) {
+                final sanitizedValue =
+                    value.replaceAll('.', '').replaceAll(',', '');
+                if (double.tryParse(sanitizedValue) == null) {
                   return 'Please enter a valid number.';
                 }
-                if (double.parse(value) <= 0) {
+                if (double.parse(sanitizedValue) <= 0) {
                   return 'Please enter an amount greater than zero.';
                 }
                 return null;

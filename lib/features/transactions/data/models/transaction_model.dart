@@ -4,7 +4,6 @@ part 'transaction_model.g.dart';
 
 @HiveType(typeId: 0)
 class TransactionModel extends HiveObject {
-
   @HiveField(0)
   final String id;
 
