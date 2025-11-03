@@ -8,7 +8,7 @@ import 'features/transactions/data/models/transaction_model.dart';
 import 'features/transactions/presentation/screens/home_screen.dart';
 
 /// The name of the Hive box where transactions are stored.
-const String kTransactionBoxName = 'transaction_box';
+import 'features/transactions/data/constants.dart';
 
 /// The main entry point for the application.
 Future<void> main() async {
